@@ -14,7 +14,8 @@ const app = express();
 const port = Number(process.env.PORT) || 5000;
 
 // Frontend URL for CORS
-const origin = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
+const origin =
+  process.env.FRONTEND_ORIGIN || "https://edulegal-news-bulletin.onrender.com";
 
 // Middleware
 app.use(
