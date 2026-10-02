@@ -1,5 +1,8 @@
 import "dotenv/config";
 
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
 import cors from "cors";
 import cron from "node-cron";
 import express from "express";
@@ -15,6 +18,17 @@ const port = Number(process.env.PORT) || 5000;
 const origin = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 
 // --------------------------------------------------
+// Find frontend/dist
+// --------------------------------------------------
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+const frontendDist = path.resolve(__dirname, "../../frontend/dist");
+
+console.log("Frontend dist path:", frontendDist);
+
+// --------------------------------------------------
 // Middleware
 // --------------------------------------------------
 
@@ -28,15 +42,8 @@ app.use(
 app.use(express.json());
 
 // --------------------------------------------------
-// Routes
+// API Routes
 // --------------------------------------------------
-
-app.get("/", (_req, res) => {
-  res.json({
-    ok: true,
-    message: "NTA Desk backend is running",
-  });
-});
 
 app.get("/api/health", (_req, res) => {
   res.json({
@@ -48,7 +55,18 @@ app.get("/api/health", (_req, res) => {
 app.use("/api/notices", noticesRouter);
 
 // --------------------------------------------------
-// Start HTTP server FIRST
+// Serve React frontend
+// --------------------------------------------------
+
+app.use(express.static(frontendDist));
+
+// React Router fallback
+app.get("*", (_req, res) => {
+  res.sendFile(path.join(frontendDist, "index.html"));
+});
+
+// --------------------------------------------------
+// Start server FIRST
 // --------------------------------------------------
 
 app.listen(port, "0.0.0.0", () => {
@@ -56,7 +74,7 @@ app.listen(port, "0.0.0.0", () => {
 });
 
 // --------------------------------------------------
-// Database + scraper startup
+// Database + Scraper
 // --------------------------------------------------
 
 async function startServices() {
@@ -72,7 +90,7 @@ async function startServices() {
       `Refreshing NTA, UGC-NET, NBA, and AICTE notices every ${minutes} minutes`,
     );
 
-    // Schedule future scrapes
+    // Scheduled scraping
     cron.schedule(`*/${minutes} * * * *`, async () => {
       console.log("Starting scheduled scrape...");
 
@@ -91,8 +109,7 @@ async function startServices() {
       }
     });
 
-    // Run the first scrape AFTER the server is already listening.
-    // Do not await this before app.listen().
+    // Initial scrape
     scrapeNta()
       .then((result) => {
         if (!result.skipped) {
@@ -108,9 +125,6 @@ async function startServices() {
       });
   } catch (error) {
     console.error("Failed to initialize services:", error);
-
-    // Do NOT kill the HTTP server.
-    // The health endpoint should remain available.
   }
 }
 
