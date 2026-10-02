@@ -1,30 +1,58 @@
 import "dotenv/config";
+
 import cors from "cors";
 import cron from "node-cron";
 import express from "express";
+
 import { connectDb } from "./config/db.js";
 import { noticesRouter } from "./routes/notices.js";
 import { scrapeNta } from "./services/scraper.js";
 
 const app = express();
+
+// Render provides PORT automatically
 const port = Number(process.env.PORT) || 5000;
+
+// Frontend URL for CORS
 const origin = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 
-app.use(cors({ origin }));
+// Middleware
+app.use(
+  cors({
+    origin,
+    credentials: true,
+  }),
+);
+
 app.use(express.json());
 
-app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, service: "nta-desk" });
+// Root route
+app.get("/", (_req, res) => {
+  res.json({
+    ok: true,
+    message: "NTA Desk backend is running",
+  });
 });
 
+// Health check
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "nta-desk",
+  });
+});
+
+// Notices API
 app.use("/api/notices", noticesRouter);
 
+// Scraper
 async function refreshQuietly() {
   try {
     const result = await scrapeNta();
+
     if (!result.skipped) {
       console.log(
-        `Scrape complete: scanned ${result.scanned}, new ${result.created}`
+        `Scrape complete: scanned ${result.scanned}, new ${result.created}`,
       );
     }
   } catch (err) {
@@ -32,14 +60,35 @@ async function refreshQuietly() {
   }
 }
 
-await connectDb();
+// Start server
+async function startServer() {
+  try {
+    // Connect to MongoDB
+    await connectDb();
 
-const minutes = Math.max(1, Number(process.env.SCRAPE_INTERVAL_MINUTES) || 10);
-cron.schedule(`*/${minutes} * * * *`, refreshQuietly);
+    // Scraping interval
+    const minutes = Math.max(
+      1,
+      Number(process.env.SCRAPE_INTERVAL_MINUTES) || 10,
+    );
 
-refreshQuietly();
+    // Run scraper every X minutes
+    cron.schedule(`*/${minutes} * * * *`, refreshQuietly);
 
-app.listen(port, () => {
-  console.log(`Backend listening on http://localhost:${port}`);
-  console.log(`Refreshing NTA, UGC-NET, NBA, and AICTE notices every ${minutes} minutes`);
-});
+    // Run once immediately after deployment
+    await refreshQuietly();
+
+    // Start Express
+    app.listen(port, "0.0.0.0", () => {
+      console.log(`Backend listening on port ${port}`);
+      console.log(
+        `Refreshing NTA, UGC-NET, NBA, and AICTE notices every ${minutes} minutes`,
+      );
+    });
+  } catch (error) {
+    console.error("Failed to start server:", error);
+    process.exit(1);
+  }
+}
+
+startServer();
