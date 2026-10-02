@@ -1,0 +1,7 @@
+node_modules
+dist
+.env
+backend/data
+_sample-home.html
+_sample-notices.html
+.DS_Store
