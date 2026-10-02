@@ -10,14 +10,14 @@ import { scrapeNta } from "./services/scraper.js";
 
 const app = express();
 
-// Render provides PORT automatically
 const port = Number(process.env.PORT) || 5000;
 
-// Frontend URL for CORS
-const origin =
-  process.env.FRONTEND_ORIGIN || "https://edulegal-news-bulletin.onrender.com";
+const origin = process.env.FRONTEND_ORIGIN || "http://localhost:5173";
 
+// --------------------------------------------------
 // Middleware
+// --------------------------------------------------
+
 app.use(
   cors({
     origin,
@@ -27,7 +27,10 @@ app.use(
 
 app.use(express.json());
 
-// Root route
+// --------------------------------------------------
+// Routes
+// --------------------------------------------------
+
 app.get("/", (_req, res) => {
   res.json({
     ok: true,
@@ -35,7 +38,6 @@ app.get("/", (_req, res) => {
   });
 });
 
-// Health check
 app.get("/api/health", (_req, res) => {
   res.json({
     ok: true,
@@ -43,53 +45,73 @@ app.get("/api/health", (_req, res) => {
   });
 });
 
-// Notices API
 app.use("/api/notices", noticesRouter);
 
-// Scraper
-async function refreshQuietly() {
-  try {
-    const result = await scrapeNta();
+// --------------------------------------------------
+// Start HTTP server FIRST
+// --------------------------------------------------
 
-    if (!result.skipped) {
-      console.log(
-        `Scrape complete: scanned ${result.scanned}, new ${result.created}`,
-      );
-    }
-  } catch (err) {
-    console.error("Scheduled scrape failed:", err.message);
-  }
-}
+app.listen(port, "0.0.0.0", () => {
+  console.log(`Backend listening on port ${port}`);
+});
 
-// Start server
-async function startServer() {
+// --------------------------------------------------
+// Database + scraper startup
+// --------------------------------------------------
+
+async function startServices() {
   try {
-    // Connect to MongoDB
     await connectDb();
 
-    // Scraping interval
     const minutes = Math.max(
       1,
       Number(process.env.SCRAPE_INTERVAL_MINUTES) || 10,
     );
 
-    // Run scraper every X minutes
-    cron.schedule(`*/${minutes} * * * *`, refreshQuietly);
+    console.log(
+      `Refreshing NTA, UGC-NET, NBA, and AICTE notices every ${minutes} minutes`,
+    );
 
-    // Run once immediately after deployment
-    await refreshQuietly();
+    // Schedule future scrapes
+    cron.schedule(`*/${minutes} * * * *`, async () => {
+      console.log("Starting scheduled scrape...");
 
-    // Start Express
-    app.listen(port, "0.0.0.0", () => {
-      console.log(`Backend listening on port ${port}`);
-      console.log(
-        `Refreshing NTA, UGC-NET, NBA, and AICTE notices every ${minutes} minutes`,
-      );
+      try {
+        const result = await scrapeNta();
+
+        if (!result.skipped) {
+          console.log(
+            `Scrape complete: scanned ${result.scanned}, new ${result.created}`,
+          );
+
+          console.log("Sources:", result.sources);
+        }
+      } catch (error) {
+        console.error("Scheduled scrape failed:", error.message);
+      }
     });
+
+    // Run the first scrape AFTER the server is already listening.
+    // Do not await this before app.listen().
+    scrapeNta()
+      .then((result) => {
+        if (!result.skipped) {
+          console.log(
+            `Initial scrape complete: scanned ${result.scanned}, new ${result.created}`,
+          );
+
+          console.log("Sources:", result.sources);
+        }
+      })
+      .catch((error) => {
+        console.error("Initial scrape failed:", error.message);
+      });
   } catch (error) {
-    console.error("Failed to start server:", error);
-    process.exit(1);
+    console.error("Failed to initialize services:", error);
+
+    // Do NOT kill the HTTP server.
+    // The health endpoint should remain available.
   }
 }
 
-startServer();
+startServices();
